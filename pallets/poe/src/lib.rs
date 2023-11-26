@@ -9,8 +9,11 @@ pub use pallet::*;
 pub mod pallet {
 	use super::*;
 
-	use frame_support::pallet_prelude::*;
-	use frame_system::pallet_prelude::*;
+	use frame_support::pallet_prelude::{DispatchResult, *};
+	use frame_system::{
+		pallet_prelude::{OriginFor, *},
+		Origin,
+	};
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -27,9 +30,22 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// Event emitted when a claim has been created.
-		ClaimCreated { who: T::AccountId, claim: T::Hash },
+		ClaimCreated {
+			who: T::AccountId,
+			claim: T::Hash,
+		},
 		/// Event emitted when a claim is revoked by the owner.
-		ClaimRevoked { who: T::AccountId, claim: T::Hash },
+		ClaimRevoked {
+			who: T::AccountId,
+			claim: T::Hash,
+		},
+
+		//
+		ClaimTransfer {
+			who: T::AccountId,
+			claim: T::Hash,
+			to: T::AccountId,
+		},
 	}
 
 	#[pallet::error]
@@ -97,6 +113,30 @@ pub mod pallet {
 
 			// Emit an event that the claim was erased.
 			Self::deposit_event(Event::ClaimRevoked { who: sender, claim });
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		#[pallet::call_index(3)]
+		pub fn transfer_claim(
+			origin: OriginFor<T>,
+			receiver: T::AccountId,
+			claim: T::Hash,
+		) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Get owner of the claim, if none return an error.
+			let (owner, _) = Claims::<T>::get(&claim).ok_or(Error::<T>::NoSuchClaim)?;
+
+			// Verify that sender of the current call is the claim owner.
+			ensure!(sender == owner, Error::<T>::NotClaimOwner);
+
+			let current_block = <frame_system::Pallet<T>>::block_number();
+
+			Claims::<T>::insert(&claim, (&receiver, current_block));
+
+			Self::deposit_event(Event::ClaimTransfer { who: sender, claim, to: receiver });
+
 			Ok(())
 		}
 	}
